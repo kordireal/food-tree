@@ -219,23 +219,29 @@ function close(){sel=null;panel.classList.remove("open");draw();}
 document.getElementById("pclose").onclick=close;
 document.getElementById("mode").onclick=function(){originMode=!originMode;this.classList.toggle("on",originMode);draw();};
 
-// live data: public thread endpoint (no auth needed)
+// live data: public thread endpoint, direct first, then CORS proxies (all optional — snapshot is the fallback)
 (async()=>{
   const badge=document.getElementById("live");
-  try{
-    const r=await fetch("https://farcaster.xyz/~api/v2/user-thread-casts?castHashPrefix=0x3db99055&username=czar&limit=5");
-    if(!r.ok)throw 0;
-    const j=await r.json();
-    const rc=(j.result.casts||[]).find(c=>c.hash===ROOT);
-    if(rc){
-      const rn=byH[ROOT];
-      if(rc.reactions&&rn)rn.likes=rc.reactions.count;
-      badge.textContent="LIVE · connected to Farcaster";
-      badge.classList.add("live");draw();
-    }else throw 0;
-  }catch(e){
-    badge.textContent="SNAPSHOT · "+(DATA.harvestedAt||"").slice(0,10);
+  const target="https://farcaster.xyz/~api/v2/user-thread-casts?castHashPrefix=0x3db99055&username=czar&limit=5";
+  const attempts=[target,
+    "https://api.allorigins.win/raw?url="+encodeURIComponent(target),
+    "https://corsproxy.io/?"+encodeURIComponent(target)];
+  let ok=false;
+  for(const u of attempts){
+    try{
+      const r=await fetch(u,{signal:AbortSignal.timeout(7000)});
+      if(!r.ok)throw 0;
+      const j=await r.json();
+      const rc=(j.result.casts||[]).find(c=>c.hash===ROOT);
+      if(rc){
+        const rn=byH[ROOT];
+        if(rc.reactions&&rn)rn.likes=rc.reactions.count;
+        ok=true;break;
+      }
+    }catch(e){}
   }
+  if(ok){badge.textContent="LIVE · connected to Farcaster";badge.classList.add("live");draw();}
+  else badge.textContent="SNAPSHOT · "+(DATA.harvestedAt||"").slice(0,10);
   const withOrigin=DATA.nodes.filter(originOf).length-1;
   document.getElementById("stats").textContent=DATA.count+" casts · "+(DATA.depth-1)+" quote levels · "+Math.max(0,withOrigin)+" origins tagged";
 })();
